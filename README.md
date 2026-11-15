@@ -48,7 +48,9 @@ curl -fsSL https://github.com/TPandaGames/zenaquarium-worlds/releases/latest/dow
 
 Add `-s -- --autostart` to also start it at login: `curl -fsSL .../install.sh | bash -s -- --autostart`. Needs `curl` (minimal installs may not have it: `sudo apt install curl`, `sudo dnf install curl`, `sudo pacman -S curl`).
 
-The script downloads the AppImage, unpacks it (so **FUSE is not required**), installs any missing system libraries with your package manager (apt, dnf, pacman or zypper — `sudo` is only used for that), puts the app in `~/.local/share/zenaquarium-worlds`, and adds a `zenaquarium-worlds` command plus an app-menu entry. Options: `--autostart`, `--no-deps`, `--no-start`, `--version v2.0.0`, `--appimage FILE`, `--uninstall`.
+**Requirements are checked before anything is downloaded**: Linux x86_64, not running as root, glibc 2.28+, ~700 MB free disk space, `curl`, that the release is reachable on GitHub, and every system library Electron needs. Missing libraries are installed first with your package manager (apt, dnf, pacman or zypper — `sudo` is only used for that); if any requirement can't be met, the script stops and says exactly what, having downloaded and changed nothing. Run `install.sh --check` to see the report without installing.
+
+Then it downloads the AppImage, unpacks it (so **FUSE is not required**), puts the app in `~/.local/share/zenaquarium-worlds`, and adds a `zenaquarium-worlds` command plus an app-menu entry. Options: `--check`, `--autostart`, `--no-deps`, `--no-start`, `--version v2.0.0`, `--appimage FILE`, `--uninstall`.
 
 **Debian / Ubuntu `.deb`:** download `zenaquarium-worlds_*_amd64.deb` from the [latest release](../../releases/latest) and run `sudo apt install ./zenaquarium-worlds_*_amd64.deb`.
 
@@ -65,11 +67,12 @@ zenaquarium-worlds status                         # scene, fish total and per-sp
 zenaquarium-worlds quit
 ```
 
-The tray icon has the same controls: worlds, **Fish in tank ▸** (bulk add/remove, or per species — *Clownfish ▸ Add one / Remove one*), Feed, auto-rotate, mouse interaction, pause, optional global shortcuts (`Ctrl+Alt+F`, `Ctrl+Alt+=` / `-`, `Ctrl+Alt+1-3`) and start at login. Moving the cursor to the top-right corner of the desktop reveals the control bar.
+The tray icon has the same controls: worlds, **Fish in tank ▸** (bulk add/remove, or per species — *Clownfish ▸ Add one / Remove one*), Feed, auto-rotate, mouse interaction, pause, optional global shortcuts (`Ctrl+Alt+F`, `Ctrl+Alt+=` / `-`, `Ctrl+Alt+1-3`), **Software rendering** and start at login. Moving the cursor to the top-right corner of the desktop reveals the control bar.
 
 - **X11 sessions (XFCE, Cinnamon, MATE, KDE, GNOME on Xorg…):** runs as a desktop-layer window (`_NET_WM_WINDOW_TYPE_DESKTOP`).
 - **Wayland sessions:** runs through XWayland (set `ZQ_WAYLAND=1` to force native Wayland, where it becomes an ordinary window). KDE Plasma and Cinnamon handle the desktop layer well; GNOME on Wayland may show it as a normal window — choose "GNOME on Xorg" for a true wallpaper.
 - **GNOME tray:** GNOME hides tray icons unless the *AppIndicator and KStatusNotifierItem Support* extension is enabled. The command line always works.
+- **Rendering** is done by Electron's Chromium, GPU-accelerated. If the GPU process keeps crashing on your machine the app restarts itself once in software-rendering mode and remembers it (or tick *Software rendering* in the tray; `ZQ_NO_GPU=1` forces it from the environment).
 - The Chromium sandbox is disabled (`--no-sandbox`); the app only ever loads its own bundled page.
 
 ## Use in a browser or another wallpaper engine

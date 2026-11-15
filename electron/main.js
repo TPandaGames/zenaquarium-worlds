@@ -43,7 +43,13 @@ const sceneFlag = (flags.find((f) => f.startsWith('--scene=')) || '').slice(8);
 app.commandLine.appendSwitch('no-sandbox');
 // Window types only exist on X11. On Wayland sessions run through XWayland unless asked otherwise.
 if (process.platform === 'linux' && !process.env.ZQ_WAYLAND) app.commandLine.appendSwitch('ozone-platform', 'x11');
-if (process.env.ZQ_NO_GPU) app.disableHardwareAcceleration();
+
+// Rendering is done by Electron's Chromium (GPU accelerated). Safety net: if the GPU process keeps
+// crashing on this machine, the app restarts itself once with software rendering and remembers that.
+function readEarlyConfig() {
+  try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8')); } catch (e) { return {}; }
+}
+if (process.env.ZQ_NO_GPU || (!command && readEarlyConfig().softwareRendering)) app.disableHardwareAcceleration();
 
 // ------------------------------------------------------------ CLI (client)
 function runClient(cmd, value) {
@@ -76,7 +82,7 @@ function startApp() {
     return;
   }
 
-  let cfg = { scene: 'reef', cycle: false, mouse: true, shortcuts: false };
+  let cfg = { scene: 'reef', cycle: false, mouse: true, shortcuts: false, softwareRendering: false };
   let win = null, tray = null, server = null;
   let pageReady = false, paused = false;
   let fishTotal = '0', species = [];
@@ -235,6 +241,8 @@ function startApp() {
       { label: 'Mouse interaction', type: 'checkbox', checked: cfg.mouse, click: (i) => { cfg.mouse = i.checked; saveCfg(); if (!cfg.mouse) js('zen.mouse(-1,-1,false);'); } },
       { label: 'Pause animation', type: 'checkbox', checked: paused, click: (i) => setPaused(i.checked) },
       { label: 'Global shortcuts (Ctrl+Alt+F / + / - / 1-3)', type: 'checkbox', checked: cfg.shortcuts, click: (i) => { cfg.shortcuts = i.checked; saveCfg(); applyShortcuts(); } },
+      { label: 'Software rendering (use if you see glitches)', type: 'checkbox', checked: !!cfg.softwareRendering,
+        click: (i) => { cfg.softwareRendering = i.checked; saveCfg(); app.relaunch(); app.exit(0); } },
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: isAutostart(), click: (i) => setAutostart(i.checked) },
       { label: 'Quit wallpaper', click: () => app.quit() }
@@ -297,6 +305,13 @@ function startApp() {
     try { if (server) server.close(); if (process.platform !== 'win32') fs.rmSync(SOCK, { force: true }); } catch (e) { /* ignore */ }
   });
   app.on('second-instance', () => {});
+  let gpuCrashes = 0;
+  app.on('child-process-gone', (event, details) => {
+    if (details.type === 'GPU' && details.reason !== 'clean-exit' && ++gpuCrashes >= 2 && !cfg.softwareRendering) {
+      cfg.softwareRendering = true; saveCfg();
+      app.relaunch(); app.exit(0);
+    }
+  });
 
   app.whenReady().then(() => {
     loadCfg();
