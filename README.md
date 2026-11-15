@@ -41,7 +41,7 @@ Installs for the current user only (no administrator rights). Uninstall from **S
 curl -fsSL https://github.com/TPandaGames/zenaquarium-worlds/releases/latest/download/zenaquarium-worlds-linux.tar.gz | tar xz && cd zenaquarium-worlds-linux && ./install.sh
 ```
 
-Add `--autostart` to the end to also start it at login. To uninstall: `./install.sh --uninstall` from that folder.
+Needs `curl` (minimal installs may not have it: `sudo apt install curl`, `sudo dnf install curl`, `sudo pacman -S curl`). Add `--autostart` to the end to also start it at login. To uninstall: `./install.sh --uninstall` from that folder.
 
 Prefer to read the script first? Download the tarball from the [latest release](../../releases/latest), or run it from a clone:
 
