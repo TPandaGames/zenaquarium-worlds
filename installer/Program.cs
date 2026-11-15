@@ -82,6 +82,36 @@ namespace ZenAquariumWorlds
             return p;
         }
 
+        // True if the Microsoft Edge WebView2 Runtime is installed. Reads the registry on purpose: touching
+        // the WebView2 assemblies here would fail when this exe is run on its own, without the DLLs beside it.
+        public static bool WebView2RuntimeInstalled()
+        {
+            const string guid = @"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+            var probes = new[]
+            {
+                new KeyValuePair<RegistryHive, string>(RegistryHive.LocalMachine, @"SOFTWARE\WOW6432Node\" + guid),
+                new KeyValuePair<RegistryHive, string>(RegistryHive.LocalMachine, @"SOFTWARE\" + guid),
+                new KeyValuePair<RegistryHive, string>(RegistryHive.CurrentUser, @"Software\" + guid)
+            };
+            foreach (var p in probes)
+            {
+                foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
+                {
+                    try
+                    {
+                        using (var baseKey = RegistryKey.OpenBaseKey(p.Key, view))
+                        using (var k = baseKey.OpenSubKey(p.Value))
+                        {
+                            var pv = k == null ? null : k.GetValue("pv") as string;
+                            if (!string.IsNullOrEmpty(pv) && pv != "0.0.0.0") return true;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            return false;
+        }
+
         public static string GetSetting(string name, string def)
         {
             try { using (var k = Registry.CurrentUser.OpenSubKey(SettingsKey)) { var v = k == null ? null : k.GetValue(name); return v == null ? def : v.ToString(); } }
@@ -128,6 +158,25 @@ namespace ZenAquariumWorlds
         [STAThread]
         static int Main(string[] args)
         {
+            // If an assembly isn't next to the exe, fall back to the copy embedded in it (the setup exe is
+            // distributed on its own, so it must never depend on loose DLLs).
+            AppDomain.CurrentDomain.AssemblyResolve += (s, e) =>
+            {
+                try
+                {
+                    string name = new AssemblyName(e.Name).Name;
+                    using (var rs = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload." + name + ".dll"))
+                    {
+                        if (rs == null) return null;
+                        var bytes = new byte[rs.Length];
+                        int read = 0;
+                        while (read < bytes.Length) { int n = rs.Read(bytes, read, bytes.Length - read); if (n <= 0) break; read += n; }
+                        return Assembly.Load(bytes);
+                    }
+                }
+                catch { return null; }
+            };
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "";
@@ -305,7 +354,7 @@ namespace ZenAquariumWorlds
             {
                 _install.Enabled = false; _install.Text = "Installing...";
                 Application.DoEvents();
-                if (!HostRunner.WebView2Available())
+                if (!App.WebView2RuntimeInstalled())
                 {
                     var r = MessageBox.Show(
                         "The Microsoft Edge WebView2 Runtime was not found. It is included with Windows 11 and Microsoft Edge, " +
@@ -391,19 +440,13 @@ namespace ZenAquariumWorlds
     // ------------------------------------------------------------------ host
     static class HostRunner
     {
-        public static bool WebView2Available()
-        {
-            try { return !string.IsNullOrEmpty(Microsoft.Web.WebView2.Core.CoreWebView2Environment.GetAvailableBrowserVersionString()); }
-            catch { return false; }
-        }
-
         public static int Run()
         {
             bool created;
             using (var mutex = new System.Threading.Mutex(true, "ZenAquariumWorlds.Host.Singleton", out created))
             {
                 if (!created) return 0; // already running
-                if (!WebView2Available())
+                if (!App.WebView2RuntimeInstalled())
                 {
                     MessageBox.Show("The Microsoft Edge WebView2 Runtime is required but was not found.\r\n" +
                                     "Install it from https://developer.microsoft.com/microsoft-edge/webview2/ and start " + App.Name + " again.",
