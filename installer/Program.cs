@@ -659,6 +659,14 @@ namespace ZenAquariumWorlds
             AddScene(menu, "koi", "🎏  Koi Pond");
             menu.Items.Add(new ToolStripSeparator());
 
+            var miMore = new ToolStripMenuItem("➕  Add fish");
+            miMore.Click += (s, e) => Js("zen.fish(2);");
+            menu.Items.Add(miMore);
+            var miLess = new ToolStripMenuItem("➖  Remove fish");
+            miLess.Click += (s, e) => Js("zen.fish(-2);");
+            menu.Items.Add(miLess);
+            menu.Items.Add(new ToolStripSeparator());
+
             _miCycle = new ToolStripMenuItem("Auto-rotate worlds (3 min)") { Checked = _cycle, CheckOnClick = true };
             _miCycle.Click += (s, e) => { _cycle = _miCycle.Checked; App.SetBool("Cycle", _cycle); Js("zen.cycle(" + (_cycle ? "true" : "false") + ");"); };
             menu.Items.Add(_miCycle);

@@ -24,6 +24,7 @@ Installs for the current user only (no administrator rights). Uninstall from **S
 
 ### Tray menu
 - Switch between **Coral Reef / Deep Sea / Koi Pond**
+- **Add fish / Remove fish** (2 at a time, up to 60 in the tank)
 - **Auto-rotate worlds** every 3 minutes
 - **Mouse interaction** — click the desktop to drop food, move the cursor to attract or startle the fish
 - **Pause animation** (also pauses automatically while a full-screen app covers the desktop)
@@ -54,6 +55,7 @@ The script installs missing dependencies with your package manager (apt, dnf, pa
 
 ```
 zenaquarium-worlds scene koi        # reef | abyss | koi
+zenaquarium-worlds fish more | fewer | +5 | -3   # change the number of fish
 zenaquarium-worlds pause | resume | cycle on | status | quit
 ./install.sh --uninstall
 ```
@@ -68,6 +70,7 @@ zenaquarium-worlds pause | resume | cycle on | status | quit
 [`examples/zenaquarium_worlds_live_wallpaper.html`](examples/zenaquarium_worlds_live_wallpaper.html) is fully self-contained (no CDN, works offline). Open it in any browser, or add it to Lively Wallpaper / Wallpaper Engine.
 
 - `1` `2` `3` switch worlds · `F` or click feeds the fish · double-click taps the glass
+- **Fish counter** in the top bar: `−` / `+` buttons (Shift-click for 5 at a time) or the `-` / `+` keys
 - Deep link a world: `?scene=abyss` or `#koi`
 
 ## Build from source

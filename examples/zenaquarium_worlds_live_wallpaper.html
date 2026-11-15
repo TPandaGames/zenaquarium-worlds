@@ -23,6 +23,13 @@
     font:500 12px inherit;font-family:inherit;padding:7px 13px;border-radius:999px;transition:all .2s}
   #sceneTabs button:hover{color:#fff}
   #sceneTabs button.active{background:rgba(34,211,238,.25);color:#a5f3fc;box-shadow:inset 0 0 0 1px rgba(34,211,238,.5)}
+  #fishCtl{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:999px;font-size:12px;color:rgba(255,255,255,.85)}
+  #fishCtl span{min-width:62px;text-align:center;white-space:nowrap}
+  #fishCtl b{color:#a5f3fc;font-weight:600}
+  #fishCtl button{width:30px;height:30px;border:0;border-radius:50%;cursor:pointer;color:#fff;font-size:18px;line-height:1;
+    background:rgba(255,255,255,.12);transition:all .2s}
+  #fishCtl button:hover{background:rgba(34,211,238,.35)}
+  #fishCtl button:active{transform:scale(.9)}
   #drawer{position:fixed;top:74px;right:18px;z-index:40;width:min(90vw,340px);max-height:calc(100vh - 100px);
     overflow-y:auto;border-radius:18px;padding:18px;opacity:0;pointer-events:none;
     transform:translateY(8px) scale(.96);transition:all .3s}
@@ -69,6 +76,11 @@
     <button data-scene="reef">🐠 Reef</button>
     <button data-scene="abyss">🪼 Abyss</button>
     <button data-scene="koi">🎏 Koi Pond</button>
+  </div>
+  <div id="fishCtl" class="glass" title="Add or remove fish (keys: + and -)">
+    <button id="fishLess" aria-label="Fewer fish">&minus;</button>
+    <span><b id="fishCount">0</b> fish</span>
+    <button id="fishMore" aria-label="More fish">+</button>
   </div>
   <button id="feedBtn" class="btn glass" title="Drop food (or click anywhere)">Feed</button>
   <button id="fsBtn" class="btn glass" title="Fullscreen">⛶</button>
@@ -1013,6 +1025,35 @@ function renderSpecies() {
     box.appendChild(row);
   }
   $('total').textContent = total() + ' creatures';
+  const fc = $('fishCount'); if (fc) fc.textContent = total();
+}
+const MAX_CREATURES = 60;
+// Add (delta > 0) or remove (delta < 0) creatures, spread across the world's species
+function adjustTotal(delta) {
+  const list = sceneSpecies(), n = Math.abs(delta);
+  for (let i = 0; i < n; i++) {
+    if (delta > 0) {
+      if (total() >= MAX_CREATURES) { toast('Tank full (' + MAX_CREATURES + ' max for smooth FPS)'); break; }
+      // weighted by each species' default population so the mix stays natural
+      const pool = [];
+      for (const s of list) {
+        const w = s.id === 'jelly' ? DEFAULT_COUNTS.jelly : s.id === 'koi' ? DEFAULT_COUNTS.koi : SPECIES[s.id].count;
+        for (let k = 0; k < w; k++) pool.push(s.id);
+      }
+      addCreature(pool[Math.floor(Math.random() * pool.length)]);
+    } else {
+      if (total() <= 1) { toast('Keep at least one!'); break; }
+      // remove from whichever species is most over-represented
+      let best = null, bs = -1;
+      for (const s of list) {
+        const def = s.id === 'jelly' ? DEFAULT_COUNTS.jelly : s.id === 'koi' ? DEFAULT_COUNTS.koi : SPECIES[s.id].count;
+        const c = countOf(s.id);
+        if (c > 0 && c / def > bs) { bs = c / def; best = s.id; }
+      }
+      if (best) removeCreature(best);
+    }
+  }
+  renderSpecies();
 }
 $('species').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-a]'); if (!b) return;
@@ -1022,6 +1063,8 @@ $('species').addEventListener('click', (e) => {
 });
 document.querySelectorAll('#sceneTabs button').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); cycleAt = Date.now(); setScene(b.dataset.scene); }));
 $('gearBtn').addEventListener('click', (e) => { e.stopPropagation(); setDrawer(!drawerOpen); });
+$('fishMore').addEventListener('click', (e) => { e.stopPropagation(); adjustTotal(e.shiftKey ? 5 : 1); });
+$('fishLess').addEventListener('click', (e) => { e.stopPropagation(); adjustTotal(e.shiftKey ? -5 : -1); });
 $('feedBtn').addEventListener('click', (e) => { e.stopPropagation(); feed(cfg.w * rand(.25, .75), cfg.scene === 'koi' ? cfg.h * rand(.3, .7) : 35); });
 $('tRays').addEventListener('change', e => cfg.rays = e.target.checked);
 $('tBubbles').addEventListener('change', e => cfg.bubbles = e.target.checked);
@@ -1038,6 +1081,8 @@ document.addEventListener('keydown', (e) => {
     if (drawerOpen) setDrawer(false);
     else if (cfg.locked) { cfg.locked = false; activity(); toast('Controls restored'); }
   } else if (e.key >= '1' && e.key <= '3') setScene(Object.keys(SCENES)[+e.key - 1]);
+  else if (e.key === '+' || e.key === '=') adjustTotal(1);
+  else if (e.key === '-' || e.key === '_') adjustTotal(-1);
   else if (e.key === 'f' || e.key === 'F') feed(cfg.w * rand(.25, .75), cfg.scene === 'koi' ? cfg.h * .5 : 35);
 });
 
@@ -1091,6 +1136,7 @@ addEventListener('load', () => {
     setScene: (id) => setScene(id, true),
     cycle: (v) => { cfg.cycle = !!v; cycleAt = Date.now(); $('tCycle').checked = !!v; },
     pause: (v) => { paused = !!v; },
+    fish: (delta) => { adjustTotal(delta | 0); return total(); },
     mouse: (fx, fy, click) => {
       if (fx < 0) { pointer.active = false; pointer.vx = pointer.vy = 0; return; }
       const x = fx * cfg.w, y = fy * cfg.h; move(x, y); if (click) feed(x, y);

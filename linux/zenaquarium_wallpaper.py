@@ -229,6 +229,9 @@ def main_gui(args):
             self.js("zen.cycle(%s);" % ("true" if on else "false"))
             self.sync_menu()
 
+        def change_fish(self, delta):
+            self.js("zen.fish(%d);" % int(delta))
+
         def set_paused(self, paused):
             self.user_paused = bool(paused)
             self.js("zen.pause(%s);" % ("true" if paused else "false"))
@@ -271,6 +274,13 @@ def main_gui(args):
                 menu.append(item)
                 self.scene_items[sid] = item
 
+            menu.append(Gtk.SeparatorMenuItem())
+            more_item = Gtk.MenuItem(label="Add fish")
+            more_item.connect("activate", lambda *_: self.change_fish(2))
+            menu.append(more_item)
+            less_item = Gtk.MenuItem(label="Remove fish")
+            less_item.connect("activate", lambda *_: self.change_fish(-2))
+            menu.append(less_item)
             menu.append(Gtk.SeparatorMenuItem())
             self.cycle_item = Gtk.CheckMenuItem(label="Auto-rotate worlds (3 min)")
             self.cycle_item.connect("toggled", lambda w: None if self.building_menu else self.set_cycle(w.get_active()))
@@ -328,6 +338,14 @@ def main_gui(args):
                 reply = "ok" if win.set_scene(arg) else "error: scene must be one of " + ", ".join(SCENE_IDS)
             elif cmd == "cycle":
                 win.set_cycle(arg in ("on", "1", "true"))
+            elif cmd == "fish":
+                deltas = {"more": 2, "add": 2, "fewer": -2, "less": -2, "remove": -2}
+                try:
+                    delta = deltas[arg] if arg in deltas else int(arg)
+                except ValueError:
+                    reply = "error: use 'fish more', 'fish fewer' or 'fish +N' / 'fish -N'"
+                else:
+                    win.change_fish(max(-60, min(60, delta)))
             elif cmd == "pause":
                 win.set_paused(True)
             elif cmd == "resume":
@@ -367,9 +385,9 @@ def main_gui(args):
 def main():
     p = argparse.ArgumentParser(prog="zenaquarium-worlds", description=__doc__.split("\n")[0])
     p.add_argument("command", nargs="?", default="run",
-                   choices=["run", "scene", "cycle", "pause", "resume", "toggle-pause", "status", "quit"],
+                   choices=["run", "scene", "cycle", "fish", "pause", "resume", "toggle-pause", "status", "quit"],
                    help="run (default) starts the wallpaper; the others control a running instance")
-    p.add_argument("value", nargs="?", help="scene name (reef|abyss|koi) or on|off for 'cycle'")
+    p.add_argument("value", nargs="?", help="scene name (reef|abyss|koi), on|off for 'cycle', or more|fewer|+N|-N for 'fish'")
     p.add_argument("--scene", choices=SCENE_IDS, help="world to start with")
     args = p.parse_args()
 
@@ -383,7 +401,7 @@ def main():
         return main_gui(args)
 
     cmd = args.command
-    if cmd in ("scene", "cycle"):
+    if cmd in ("scene", "cycle", "fish"):
         if not args.value:
             p.error("'%s' needs a value" % cmd)
         cmd += " " + args.value
