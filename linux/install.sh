@@ -1,50 +1,58 @@
 #!/usr/bin/env bash
-# ZenAquarium Worlds - Linux installer (per-user, no root needed except for system packages)
+# ZenAquarium Worlds - Linux installer (Electron build, per-user, no root except for system libraries)
 #
-#   ./install.sh                 install (installs missing dependencies with sudo if needed)
+#   curl -fsSL https://github.com/TPandaGames/zenaquarium-worlds/releases/latest/download/install.sh | bash
+#
+#   ./install.sh                 install the latest release
 #   ./install.sh --autostart     also start the wallpaper at login
-#   ./install.sh --no-deps       skip dependency installation
-#   ./install.sh --no-start      don't launch it after installing
+#   ./install.sh --appimage FILE install from a local AppImage instead of downloading
+#   ./install.sh --version v2.0.0  install a specific release
+#   ./install.sh --no-deps       skip installing system libraries
+#   ./install.sh --no-start      don't launch it afterwards
 #   ./install.sh --uninstall     remove everything this script installed
 set -euo pipefail
 
 APP_ID="zenaquarium-worlds"
 APP_NAME="ZenAquarium Worlds"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="TPandaGames/zenaquarium-worlds"
+ASSET="ZenAquarium-Worlds-x86_64.AppImage"
 
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 INSTALL_DIR="$DATA_HOME/$APP_ID"
+APP_DIR="$INSTALL_DIR/app"
 BIN_DIR="$HOME/.local/bin"
 LAUNCHER="$BIN_DIR/$APP_ID"
 DESKTOP_FILE="$DATA_HOME/applications/$APP_ID.desktop"
 AUTOSTART_FILE="$CONFIG_HOME/autostart/$APP_ID.desktop"
-ICON_DIR="$DATA_HOME/icons/hicolor/scalable/apps"
+ICON_DIR="$DATA_HOME/icons/hicolor/512x512/apps"
 
-DO_AUTOSTART=0; DO_DEPS=1; DO_START=1; DO_UNINSTALL=0
+DO_AUTOSTART=0; DO_DEPS=1; DO_START=1; DO_UNINSTALL=0; LOCAL_APPIMAGE=""; VERSION=""
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
-for arg in "$@"; do
-  case "$arg" in
+while [ $# -gt 0 ]; do
+  case "$1" in
     --autostart) DO_AUTOSTART=1 ;;
     --no-deps)   DO_DEPS=0 ;;
     --no-start)  DO_START=0 ;;
     --uninstall) DO_UNINSTALL=1 ;;
-    -h|--help)   sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) die "unknown option: $arg (try --help)" ;;
+    --appimage)  shift; LOCAL_APPIMAGE="${1:-}"; [ -n "$LOCAL_APPIMAGE" ] || die "--appimage needs a file" ;;
+    --version)   shift; VERSION="${1:-}"; [ -n "$VERSION" ] || die "--version needs a tag, e.g. v2.0.0" ;;
+    -h|--help)   sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) die "unknown option: $1 (try --help)" ;;
   esac
+  shift
 done
 
 # ------------------------------------------------------------------ uninstall
 if [ "$DO_UNINSTALL" = 1 ]; then
   say "Uninstalling $APP_NAME"
   if [ -x "$LAUNCHER" ]; then "$LAUNCHER" quit >/dev/null 2>&1 || true; sleep 1; fi
-  rm -rf "$INSTALL_DIR"
-  rm -f "$LAUNCHER" "$DESKTOP_FILE" "$AUTOSTART_FILE" "$ICON_DIR/$APP_ID.svg"
-  rm -rf "$CONFIG_HOME/$APP_ID"
+  rm -rf "$INSTALL_DIR" "$CONFIG_HOME/$APP_NAME"
+  rm -f "$LAUNCHER" "$DESKTOP_FILE" "$AUTOSTART_FILE" "$ICON_DIR/$APP_ID.png"
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$DATA_HOME/applications" >/dev/null 2>&1 || true
   say "Removed. Your normal wallpaper is back."
   exit 0
@@ -52,104 +60,86 @@ fi
 
 [ "$(id -u)" -ne 0 ] || die "run this as your normal user, not root (it installs into your home directory)"
 [ "$(uname -s)" = "Linux" ] || die "this installer is for Linux"
-command -v python3 >/dev/null 2>&1 || NEED_PYTHON=1
+case "$(uname -m)" in x86_64|amd64) ;; *) die "only x86_64 builds are published for now (this machine is $(uname -m))" ;; esac
 
-# ------------------------------------------------------------------ locate payload
-PY_SRC="$SCRIPT_DIR/zenaquarium_wallpaper.py"
-SVG_SRC="$SCRIPT_DIR/$APP_ID.svg"
-HTML_SRC=""
-for c in "$SCRIPT_DIR/wallpaper.html" "$SCRIPT_DIR/../examples/zenaquarium_worlds_live_wallpaper.html"; do
-  [ -f "$c" ] && { HTML_SRC="$c"; break; }
-done
-[ -f "$PY_SRC" ]   || die "missing $PY_SRC"
-[ -f "$SVG_SRC" ]  || die "missing $SVG_SRC"
-[ -n "$HTML_SRC" ] || die "missing wallpaper.html (expected next to this script or in ../examples/)"
-
-# ------------------------------------------------------------------ dependencies
-py_has() { python3 - "$@" >/dev/null 2>&1 <<'EOF'
-import sys, gi
-mods = sys.argv[1:]
-for m in mods:
-    ns, ver = m.split(":")
-    gi.require_version(ns, ver)
-EOF
+# ------------------------------------------------------------------ system libraries Electron needs
+missing_libs() {
+  # $1: path to the electron binary
+  command -v ldd >/dev/null 2>&1 || return 0
+  ldd "$1" 2>/dev/null | awk '/not found/ {print $1}'
 }
-
-webkit_ok()   { py_has Gtk:3.0 WebKit2:4.1 || py_has Gtk:3.0 WebKit2:4.0; }
 
 install_deps() {
   local id="" like=""
   if [ -r /etc/os-release ]; then . /etc/os-release; id="${ID:-}"; like="${ID_LIKE:-}"; fi
-  local fam="$id $like"
-  local SUDO=""
-  [ "$(id -u)" -eq 0 ] || { command -v sudo >/dev/null 2>&1 && SUDO="sudo" || die "need sudo to install packages; install them manually and re-run with --no-deps"; }
-
-  local required=() optional=() mgr=""
+  local fam="$id $like" SUDO=""
+  [ "$(id -u)" -eq 0 ] || { command -v sudo >/dev/null 2>&1 && SUDO="sudo" || { warn "sudo not found - install Electron's system libraries manually (see README)"; return 0; }; }
   case "$fam" in
     *debian*|*ubuntu*|*mint*|*pop*)
-      mgr="apt"
-      required=(python3 python3-gi gir1.2-gtk-3.0)
-      optional=(gir1.2-ayatanaappindicator3-0.1 gir1.2-gtklayershell-0.1)
+      say "Installing system libraries with apt"
+      $SUDO apt-get update -y
+      local asound="libasound2"; apt-cache show libasound2t64 >/dev/null 2>&1 && asound="libasound2t64"
+      local gtk="libgtk-3-0"; apt-cache show libgtk-3-0t64 >/dev/null 2>&1 && gtk="libgtk-3-0t64"
+      local atk="libatk-bridge2.0-0"; apt-cache show libatk-bridge2.0-0t64 >/dev/null 2>&1 && atk="libatk-bridge2.0-0t64"
+      $SUDO apt-get install -y "$gtk" libnss3 libgbm1 "$asound" libxss1 libxtst6 "$atk" libxkbcommon0 libdrm2 ca-certificates curl xdg-utils
       ;;
     *fedora*|*rhel*|*centos*)
-      mgr="dnf"
-      required=(python3 python3-gobject gtk3 webkit2gtk4.1)
-      optional=(libayatana-appindicator-gtk3 gtk-layer-shell)
-      ;;
+      say "Installing system libraries with dnf"
+      $SUDO dnf install -y gtk3 nss mesa-libgbm alsa-lib libXScrnSaver libXtst at-spi2-atk libxkbcommon libdrm curl xdg-utils ;;
     *arch*|*manjaro*|*endeavour*)
-      mgr="pacman"
-      required=(python python-gobject gtk3 webkit2gtk-4.1)
-      optional=(libayatana-appindicator gtk-layer-shell)
-      ;;
+      say "Installing system libraries with pacman"
+      $SUDO pacman -S --needed --noconfirm gtk3 nss mesa alsa-lib libxss libxtst at-spi2-core libxkbcommon libdrm curl xdg-utils ;;
     *suse*)
-      mgr="zypper"
-      required=(python3 python3-gobject typelib-1_0-Gtk-3_0 typelib-1_0-WebKit2-4_1)
-      optional=(typelib-1_0-AyatanaAppindicator3-0_1 typelib-1_0-GtkLayerShell-0_1)
-      ;;
-    *) warn "unrecognised distro ('$fam'); install these manually: Python 3, PyGObject, GTK 3, WebKit2GTK 4.1 (+ optional AppIndicator, gtk-layer-shell)"; return 0 ;;
-  esac
-
-  say "Installing dependencies with $mgr"
-  case "$mgr" in
-    apt)
-      $SUDO apt-get update -y
-      # Debian 13 / Ubuntu 24.04+ ship WebKit2 4.1; older releases only have 4.0
-      if apt-cache show gir1.2-webkit2-4.1 >/dev/null 2>&1; then required+=(gir1.2-webkit2-4.1); else required+=(gir1.2-webkit2-4.0); fi
-      $SUDO apt-get install -y "${required[@]}"
-      for p in "${optional[@]}"; do $SUDO apt-get install -y "$p" || warn "optional package $p not available"; done ;;
-    dnf)
-      $SUDO dnf install -y "${required[@]}"
-      for p in "${optional[@]}"; do $SUDO dnf install -y "$p" || warn "optional package $p not available"; done ;;
-    pacman)
-      $SUDO pacman -S --needed --noconfirm "${required[@]}"
-      for p in "${optional[@]}"; do $SUDO pacman -S --needed --noconfirm "$p" || warn "optional package $p not available"; done ;;
-    zypper)
-      $SUDO zypper --non-interactive install "${required[@]}"
-      for p in "${optional[@]}"; do $SUDO zypper --non-interactive install "$p" || warn "optional package $p not available"; done ;;
+      say "Installing system libraries with zypper"
+      $SUDO zypper --non-interactive install gtk3 mozilla-nss libgbm1 alsa libXss1 libXtst6 at-spi2-core libxkbcommon0 libdrm2 curl xdg-utils ;;
+    *) warn "unrecognised distro ('$fam') - if it fails to start, install GTK 3, NSS, GBM, ALSA, libXss, libXtst and AT-SPI" ;;
   esac
 }
 
-if [ "$DO_DEPS" = 1 ]; then
-  if [ -n "${NEED_PYTHON:-}" ] || ! webkit_ok; then
-    install_deps
-  else
-    say "Dependencies already present"
-  fi
+# ------------------------------------------------------------------ get the AppImage
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+if [ -n "$LOCAL_APPIMAGE" ]; then
+  [ -f "$LOCAL_APPIMAGE" ] || die "file not found: $LOCAL_APPIMAGE"
+  cp "$LOCAL_APPIMAGE" "$TMP/app.AppImage"
+else
+  command -v curl >/dev/null 2>&1 || die "curl is required (sudo apt install curl / dnf install curl / pacman -S curl)"
+  if [ -n "$VERSION" ]; then URL="https://github.com/$REPO/releases/download/$VERSION/$ASSET"
+  else URL="https://github.com/$REPO/releases/latest/download/$ASSET"; fi
+  say "Downloading $ASSET"
+  curl -fL --progress-bar -o "$TMP/app.AppImage" "$URL" || die "download failed: $URL"
 fi
-command -v python3 >/dev/null 2>&1 || die "python3 not found"
-webkit_ok || die "GTK3 + WebKit2GTK Python bindings are still missing. Install them (see README) or re-run without --no-deps."
+chmod +x "$TMP/app.AppImage"
 
-# ------------------------------------------------------------------ install files
+# ------------------------------------------------------------------ unpack (no FUSE needed)
+say "Unpacking"
+( cd "$TMP" && ./app.AppImage --appimage-extract >/dev/null ) || die "could not unpack the AppImage"
+[ -x "$TMP/squashfs-root/$APP_ID" ] || die "unexpected AppImage layout (no $APP_ID binary)"
+
+if [ "$DO_DEPS" = 1 ]; then
+  if [ -n "$(missing_libs "$TMP/squashfs-root/$APP_ID")" ]; then install_deps; else say "System libraries already present"; fi
+  still="$(missing_libs "$TMP/squashfs-root/$APP_ID" | tr '\n' ' ')"
+  [ -z "$still" ] || warn "still missing libraries: $still"
+fi
+
+# ------------------------------------------------------------------ install
 say "Installing to $INSTALL_DIR"
+[ -x "$LAUNCHER" ] && "$LAUNCHER" quit >/dev/null 2>&1 || true
+rm -rf "$APP_DIR"
 mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$ICON_DIR" "$(dirname "$DESKTOP_FILE")"
-install -m 0644 "$HTML_SRC" "$INSTALL_DIR/wallpaper.html"
-install -m 0755 "$PY_SRC"   "$INSTALL_DIR/zenaquarium_wallpaper.py"
-install -m 0644 "$SVG_SRC"  "$INSTALL_DIR/$APP_ID.svg"
-install -m 0644 "$SVG_SRC"  "$ICON_DIR/$APP_ID.svg"
+mv "$TMP/squashfs-root" "$APP_DIR"
+chmod -R u+rwX "$APP_DIR"
+
+ICON_SRC=""
+for c in "$APP_DIR/$APP_ID.png" "$APP_DIR/usr/share/icons/hicolor/512x512/apps/$APP_ID.png" "$APP_DIR/.DirIcon"; do
+  [ -f "$c" ] && { ICON_SRC="$c"; break; }
+done
+[ -n "$ICON_SRC" ] && cp -L "$ICON_SRC" "$ICON_DIR/$APP_ID.png" || warn "icon not found in the AppImage"
 
 cat > "$LAUNCHER" <<EOF
 #!/bin/sh
-exec python3 "$INSTALL_DIR/zenaquarium_wallpaper.py" "\$@"
+# Launcher for $APP_NAME (installed by install.sh)
+export ZQ_LAUNCHER="$LAUNCHER"
+exec "$APP_DIR/$APP_ID" --no-sandbox "\$@"
 EOF
 chmod 0755 "$LAUNCHER"
 
@@ -174,24 +164,20 @@ fi
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$DATA_HOME/applications" >/dev/null 2>&1 || true
 command -v gtk-update-icon-cache  >/dev/null 2>&1 && gtk-update-icon-cache -q -t "$DATA_HOME/icons/hicolor" >/dev/null 2>&1 || true
-
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR is not on your PATH - add it to run '$APP_ID' from a terminal" ;; esac
 
 # ------------------------------------------------------------------ session notes
 SESSION="${XDG_SESSION_TYPE:-unknown}"; DESK="${XDG_CURRENT_DESKTOP:-unknown}"
-case "$DESK" in
-  *GNOME*|*Unity*)
-    if [ "$SESSION" = "wayland" ]; then
-      warn "GNOME on Wayland has no layer-shell support, so the wallpaper runs through XWayland and may appear as a normal window."
-      warn "For a true desktop-layer wallpaper, log in with 'GNOME on Xorg' (or use KDE/Sway/Hyprland/XFCE/Cinnamon/MATE)."
-    fi ;;
-esac
+if [ "$SESSION" = "wayland" ]; then
+  warn "Wayland session: the wallpaper runs through XWayland. KDE Plasma and Cinnamon handle this well; GNOME may show it as a normal window - log in with 'GNOME on Xorg' for a true wallpaper."
+fi
+case "$DESK" in *GNOME*) warn "GNOME hides tray icons unless the 'AppIndicator and KStatusNotifierItem Support' extension is enabled - the command line still works." ;; esac
 
 say "Installed $APP_NAME"
 echo "  Start:      $APP_ID            (or pick it from your app menu)"
 echo "  Switch:     $APP_ID scene koi  (reef | abyss | koi)"
-echo "  Control:    $APP_ID pause | resume | cycle on | status | quit"
-echo "  Uninstall:  $SCRIPT_DIR/install.sh --uninstall"
+echo "  Control:    $APP_ID fish more | feed | pause | resume | cycle on | status | quit"
+echo "  Uninstall:  curl -fsSL https://github.com/$REPO/releases/latest/download/install.sh | bash -s -- --uninstall"
 
 if [ "$DO_START" = 1 ]; then
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then

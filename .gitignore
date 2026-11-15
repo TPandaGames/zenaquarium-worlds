@@ -11,3 +11,8 @@ examples/virtual_fishtank_live_wallpaper.html
 .vs/
 .vscode/
 Thumbs.db
+
+# Electron app
+electron/node_modules/
+electron/dist/
+electron/wallpaper.html

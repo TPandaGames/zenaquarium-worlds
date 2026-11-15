@@ -1044,6 +1044,7 @@ function renderSpecies() {
 function postState() {
   try {
     const msg = cfg.scene + '|' + total() + '|' + sceneSpecies().map(s => s.id + ':' + s.name + ':' + countOf(s.id)).join(';');
+    if (window.zenHost) window.zenHost.state(msg);            // Electron (Linux) host
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(msg);
     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.zen) window.webkit.messageHandlers.zen.postMessage(msg);
   } catch (e) {}
@@ -1169,6 +1170,7 @@ addEventListener('load', () => {
       renderSpecies(); return countOf(id);
     },
     state: () => { postState(); },
+    feed: () => feed(cfg.w * rand(.25, .75), cfg.scene === 'koi' ? cfg.h * rand(.3, .7) : 35),
     mouse: (fx, fy, click) => {
       if (fx < 0) { pointer.active = false; pointer.vx = pointer.vy = 0; return; }
       const x = fx * cfg.w, y = fy * cfg.h;

@@ -1,0 +1,70 @@
+{
+  "name": "zenaquarium-worlds",
+  "productName": "ZenAquarium Worlds",
+  "version": "2.0.0",
+  "description": "Interactive live wallpaper with three procedural worlds: Coral Reef, Deep Sea and Koi Pond",
+  "main": "main.js",
+  "homepage": "https://github.com/TPandaGames/zenaquarium-worlds",
+  "desktopName": "zenaquarium-worlds.desktop",
+  "author": {
+    "name": "TPandaGames",
+    "email": "351797388+TPandaGames@users.noreply.github.com"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "sync": "node scripts/sync.js",
+    "prestart": "npm run sync",
+    "start": "electron . --no-sandbox",
+    "windowed": "npm run sync && electron . --no-sandbox --windowed",
+    "predist": "npm run sync",
+    "dist": "electron-builder --linux AppImage deb --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "io.github.tpandagames.zenaquarium",
+    "productName": "ZenAquarium Worlds",
+    "executableName": "zenaquarium-worlds",
+    "copyright": "ZenAquarium Worlds",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "wallpaper.html",
+      "assets/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "syncDesktopName": true,
+      "icon": "assets/icon.png",
+      "synopsis": "Live wallpaper: Coral Reef, Deep Sea and Koi Pond",
+      "maintainer": "TPandaGames <351797388+TPandaGames@users.noreply.github.com>",
+      "executableArgs": [
+        "--no-sandbox"
+      ],
+      "desktop": {
+        "entry": {
+          "Comment": "Interactive live wallpaper with three procedural worlds",
+          "Keywords": "wallpaper;aquarium;fish;live;desktop;"
+        }
+      }
+    },
+    "appImage": {
+      "artifactName": "ZenAquarium-Worlds-x86_64.AppImage"
+    },
+    "deb": {
+      "artifactName": "zenaquarium-worlds_${version}_amd64.deb"
+    }
+  }
+}
