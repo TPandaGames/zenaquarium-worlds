@@ -25,6 +25,28 @@ Installs for the current user only (no administrator rights). Uninstall from **S
 
 > Only one live-wallpaper app can own the desktop layer at a time. Exit other live-wallpaper software before running this one.
 
+## Install (Linux)
+
+> **Status: experimental.** Install, run, command-line control and uninstall were tested on Debian 13 (trixie) under WSLg, where it runs as a plain full-screen window. The true desktop-layer behaviour on X11 and layer-shell compositors, and the tray icon, have not been tested on a real Linux desktop.
+
+```
+cd linux
+./install.sh --autostart      # --autostart is optional
+```
+
+The script installs missing dependencies with your package manager (apt, dnf, pacman or zypper — it asks for `sudo` only for that), copies the app to `~/.local/share/zenaquarium-worlds`, adds a `zenaquarium-worlds` command and an app-menu entry, and starts the wallpaper.
+
+```
+zenaquarium-worlds scene koi        # reef | abyss | koi
+zenaquarium-worlds pause | resume | cycle on | status | quit
+./install.sh --uninstall
+```
+
+- **X11 / XFCE / Cinnamon / MATE / GNOME on Xorg:** runs as a desktop-layer window.
+- **KDE, Sway, Hyprland on Wayland:** runs as a background layer-shell surface (needs `gtk-layer-shell`, installed by the script when available).
+- **GNOME on Wayland:** no layer-shell support, so it runs through XWayland and may appear as a normal window. Use "GNOME on Xorg" for a true wallpaper.
+- A tray icon is shown if an AppIndicator library is present; otherwise use the command above.
+
 ## Use in a browser or another wallpaper engine
 
 [`examples/zenaquarium_worlds_live_wallpaper.html`](examples/zenaquarium_worlds_live_wallpaper.html) is fully self-contained (no CDN, works offline). Open it in any browser, or add it to Lively Wallpaper / Wallpaper Engine.
@@ -49,5 +71,6 @@ The host is a small WinForms app that embeds the page in a WebView2 control and 
 ## Project layout
 ```
 examples/   the wallpaper page (HTML + canvas, no dependencies)
-installer/  C# installer + wallpaper host (embeds the page)
+installer/  C# installer + wallpaper host for Windows (embeds the page)
+linux/      Python/GTK/WebKitGTK wallpaper host + install.sh for Linux
 ```
