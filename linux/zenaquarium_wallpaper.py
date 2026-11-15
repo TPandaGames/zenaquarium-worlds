@@ -187,6 +187,9 @@ def main_gui(args):
                 pass
             self.view.connect("context-menu", lambda *a: True)
             self.view.connect("load-changed", self.on_load)
+            ucm = self.view.get_user_content_manager()
+            ucm.connect("script-message-received::zen", self.on_page_state)
+            ucm.register_script_message_handler("zen")
             self.add(self.view)
 
             url = "file://%s?wallpaper=1&scene=%s" % (html, self.cfg["scene"])
@@ -209,6 +212,7 @@ def main_gui(args):
             if event == WebKit2.LoadEvent.FINISHED:
                 self.ready = True
                 self.push_state()
+                self.js("zen.state();")
 
         def push_state(self):
             self.js("zen.cycle(%s);" % ("true" if self.cfg.get("cycle") else "false"))
@@ -231,6 +235,60 @@ def main_gui(args):
 
         def change_fish(self, delta):
             self.js("zen.fish(%d);" % int(delta))
+
+        def change_species(self, sid, delta):
+            if sid.isalnum():
+                self.js("zen.species('%s',%d);" % (sid, int(delta)))
+
+        # The page reports "scene|total|id:name:count;..." whenever the tank changes
+        def on_page_state(self, manager, message):
+            try:
+                value = message.get_js_value() if hasattr(message, "get_js_value") else message.get_value()
+                text = value.to_string()
+                scene, total, rows = text.split("|", 2)
+                self.fish_total = total
+                self.species = [r.split(":") for r in rows.split(";") if r.count(":") == 2]
+                if scene in SCENE_IDS and scene != self.cfg["scene"]:
+                    self.cfg["scene"] = scene
+                    save_config(self.cfg)
+                    self.sync_menu()
+                self.rebuild_fish_menu()
+            except Exception:
+                pass
+
+        def rebuild_fish_menu(self):
+            menu = getattr(self, "fish_menu", None)
+            if menu is None:
+                return
+            for child in menu.get_children():
+                menu.remove(child)
+            head = Gtk.MenuItem(label="%s creatures in this world" % getattr(self, "fish_total", "0"))
+            head.set_sensitive(False)
+            menu.append(head)
+            more = Gtk.MenuItem(label="Add fish (mixed)")
+            more.connect("activate", lambda *_: self.change_fish(2))
+            menu.append(more)
+            less = Gtk.MenuItem(label="Remove fish (mixed)")
+            less.connect("activate", lambda *_: self.change_fish(-2))
+            menu.append(less)
+            menu.append(Gtk.SeparatorMenuItem())
+            species = getattr(self, "species", [])
+            if not species:
+                waiting = Gtk.MenuItem(label="Waiting for the tank...")
+                waiting.set_sensitive(False)
+                menu.append(waiting)
+            for sid, name, count in species:
+                row = Gtk.MenuItem(label="%s  (%s)" % (name, count))
+                sub = Gtk.Menu()
+                add = Gtk.MenuItem(label="Add one")
+                add.connect("activate", lambda _w, s=sid: self.change_species(s, 1))
+                rem = Gtk.MenuItem(label="Remove one")
+                rem.connect("activate", lambda _w, s=sid: self.change_species(s, -1))
+                sub.append(add)
+                sub.append(rem)
+                row.set_submenu(sub)
+                menu.append(row)
+            menu.show_all()
 
         def set_paused(self, paused):
             self.user_paused = bool(paused)
@@ -275,12 +333,11 @@ def main_gui(args):
                 self.scene_items[sid] = item
 
             menu.append(Gtk.SeparatorMenuItem())
-            more_item = Gtk.MenuItem(label="Add fish")
-            more_item.connect("activate", lambda *_: self.change_fish(2))
-            menu.append(more_item)
-            less_item = Gtk.MenuItem(label="Remove fish")
-            less_item.connect("activate", lambda *_: self.change_fish(-2))
-            menu.append(less_item)
+            self.fish_item = Gtk.MenuItem(label="Fish in tank")
+            self.fish_menu = Gtk.Menu()
+            self.fish_item.set_submenu(self.fish_menu)
+            menu.append(self.fish_item)
+            self.rebuild_fish_menu()
             menu.append(Gtk.SeparatorMenuItem())
             self.cycle_item = Gtk.CheckMenuItem(label="Auto-rotate worlds (3 min)")
             self.cycle_item.connect("toggled", lambda w: None if self.building_menu else self.set_cycle(w.get_active()))
@@ -353,7 +410,9 @@ def main_gui(args):
             elif cmd == "toggle-pause":
                 win.set_paused(not win.user_paused)
             elif cmd == "status":
-                reply = "scene=%s cycle=%s paused=%s" % (win.cfg["scene"], win.cfg.get("cycle"), win.user_paused)
+                tank = ",".join("%s=%s" % (sid, cnt) for sid, _n, cnt in getattr(win, "species", []))
+                reply = "scene=%s cycle=%s paused=%s fish=%s [%s]" % (
+                    win.cfg["scene"], win.cfg.get("cycle"), win.user_paused, getattr(win, "fish_total", "?"), tank)
             elif cmd == "quit":
                 conn.sendall(b"ok\n")
                 GLib.idle_add(win.shutdown)

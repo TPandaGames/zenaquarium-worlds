@@ -64,6 +64,7 @@
   #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(8px);z-index:50;
     padding:10px 20px;border-radius:999px;font-size:12px;opacity:0;pointer-events:none;transition:all .3s}
   #toast.show{opacity:1;transform:translateX(-50%)}
+  body.wp #fsBtn,body.wp #wallBtn,body.wp .guide{display:none}
   @media(max-width:640px){#sceneTabs button{padding:7px 9px}}
 </style>
 </head>
@@ -1009,8 +1010,19 @@ function toast(msg) {
   toastEl.textContent = msg; toastEl.classList.add('show');
   clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), 3000);
 }
-function setDrawer(open) { drawerOpen = open; drawer.classList.toggle('open', open); if (open) { cfg.locked = false; hud.classList.remove('hidden'); } }
+function setDrawer(open) { drawerOpen = open; drawer.classList.toggle('open', open); if (open) { if (!cfg.wallpaper) cfg.locked = false; hud.classList.remove('hidden'); } }
+// True when (x, y) is over the corner that reveals the control bar, or over the open settings drawer
+function inHudZone(x, y) {
+  if (x > cfg.w - 660 && y < 100) return true;
+  if (drawerOpen) { const r = drawer.getBoundingClientRect(); return x >= r.left - 10 && x <= r.right + 10 && y >= r.top - 10 && y <= r.bottom + 10; }
+  return false;
+}
 function hudTick() {
+  if (cfg.wallpaper) {
+    // Desktop wallpaper mode: the bar is hidden until the cursor visits the top-right corner
+    hud.classList.toggle('hidden', !(drawerOpen || Date.now() < (cfg.hudUntil || 0)));
+    return;
+  }
   if (drawerOpen) return;
   hud.classList.toggle('hidden', cfg.locked || Date.now() - pointer.last > 2800);
 }
@@ -1026,6 +1038,15 @@ function renderSpecies() {
   }
   $('total').textContent = total() + ' creatures';
   const fc = $('fishCount'); if (fc) fc.textContent = total();
+  postState();
+}
+// Tell the native host (tray menu) what is in the tank: "scene|total|id:name:count;id:name:count"
+function postState() {
+  try {
+    const msg = cfg.scene + '|' + total() + '|' + sceneSpecies().map(s => s.id + ':' + s.name + ':' + countOf(s.id)).join(';');
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(msg);
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.zen) window.webkit.messageHandlers.zen.postMessage(msg);
+  } catch (e) {}
 }
 const MAX_CREATURES = 60;
 // Add (delta > 0) or remove (delta < 0) creatures, spread across the world's species
@@ -1114,6 +1135,7 @@ canvas.addEventListener('dblclick', (e) => {
 function move(x, y) {
   if (pointer.active) { pointer.vx = x - pointer.x; pointer.vy = y - pointer.y; }
   pointer.x = x; pointer.y = y; pointer.active = true; activity();
+  if (cfg.wallpaper && inHudZone(x, y)) { cfg.hudUntil = Date.now() + 1800; hud.classList.remove('hidden'); }
   if (Math.hypot(pointer.vx, pointer.vy) > 26 && Math.random() < .35 && cfg.bubbles && cfg.scene !== 'koi') bubbles.push(new Bubble(x + rand(-6, 6), y + rand(-6, 6), rand(1.4, 3)));
   if (cfg.scene === 'koi' && Math.hypot(pointer.vx, pointer.vy) > 30 && Math.random() < .12) ripples.push(new Ripple(x, y, 40, .25));
 }
@@ -1130,16 +1152,33 @@ addEventListener('load', () => {
     const q = new URLSearchParams(location.search).get('scene') || location.hash.slice(1) || localStorage.getItem('zenWorldsScene');
     if (q && SCENES[q]) start = q;
   } catch (e) {}
-  try { if (new URLSearchParams(location.search).get('wallpaper')) { cfg.wallpaper = true; cfg.locked = true; } } catch (e) {}
+  try { if (new URLSearchParams(location.search).get('wallpaper')) { cfg.wallpaper = true; cfg.locked = true; document.body.classList.add('wp'); } } catch (e) {}
   // Control API used by the native wallpaper host (tray menu, desktop mouse forwarding)
   window.zen = {
     setScene: (id) => setScene(id, true),
     cycle: (v) => { cfg.cycle = !!v; cycleAt = Date.now(); $('tCycle').checked = !!v; },
     pause: (v) => { paused = !!v; },
     fish: (delta) => { adjustTotal(delta | 0); return total(); },
+    // add (delta > 0) or remove (delta < 0) a specific species, e.g. zen.species('clownfish', 1)
+    species: (id, delta) => {
+      const d = delta | 0, n = Math.abs(d);
+      for (let i = 0; i < n; i++) {
+        if (d > 0) { if (total() >= MAX_CREATURES) { toast('Tank full'); break; } addCreature(id); }
+        else { if (total() <= 1 || countOf(id) === 0) break; removeCreature(id); }
+      }
+      renderSpecies(); return countOf(id);
+    },
+    state: () => { postState(); },
     mouse: (fx, fy, click) => {
       if (fx < 0) { pointer.active = false; pointer.vx = pointer.vy = 0; return; }
-      const x = fx * cfg.w, y = fy * cfg.h; move(x, y); if (click) feed(x, y);
+      const x = fx * cfg.w, y = fy * cfg.h;
+      // The wallpaper window never gets real clicks (it sits behind the desktop icons), so a forwarded
+      // click on the control bar is routed to the button underneath instead of dropping food.
+      if (click && cfg.wallpaper && inHudZone(x, y) && !hud.classList.contains('hidden')) {
+        const el = document.elementFromPoint(x, y), target = el && el.closest('button,label,input');
+        if (target) { target.click(); cfg.hudUntil = Date.now() + 1800; return; }
+      }
+      move(x, y); if (click) feed(x, y);
     }
   };
   resize(); setScene(start, true); cfg.fade = 1;

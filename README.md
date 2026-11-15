@@ -24,11 +24,13 @@ Installs for the current user only (no administrator rights). Uninstall from **S
 
 ### Tray menu
 - Switch between **Coral Reef / Deep Sea / Koi Pond**
-- **Add fish / Remove fish** (2 at a time, up to 60 in the tank)
+- **Fish in tank ▸** submenu: add or remove fish in bulk, or pick a species (e.g. *Clownfish ▸ Add one / Remove one*) — the list always matches the current world (up to 60 in the tank)
 - **Auto-rotate worlds** every 3 minutes
 - **Mouse interaction** — click the desktop to drop food, move the cursor to attract or startle the fish
 - **Pause animation** (also pauses automatically while a full-screen app covers the desktop)
 - **Start with Windows**, **Uninstall**, **Exit**
+
+**Control bar on the desktop:** move your cursor to the top-right corner of the desktop and the bar fades in — switch worlds, `−` / `+` fish count, Feed, and settings. Click its buttons normally; click anywhere else on the bare desktop to drop food.
 
 > Only one live-wallpaper app can own the desktop layer at a time. Exit other live-wallpaper software before running this one.
 
@@ -56,6 +58,7 @@ The script installs missing dependencies with your package manager (apt, dnf, pa
 ```
 zenaquarium-worlds scene koi        # reef | abyss | koi
 zenaquarium-worlds fish more | fewer | +5 | -3   # change the number of fish
+zenaquarium-worlds status                         # scene, fish total and per-species counts
 zenaquarium-worlds pause | resume | cycle on | status | quit
 ./install.sh --uninstall
 ```
@@ -63,7 +66,7 @@ zenaquarium-worlds pause | resume | cycle on | status | quit
 - **X11 / XFCE / Cinnamon / MATE / GNOME on Xorg:** runs as a desktop-layer window.
 - **KDE, Sway, Hyprland on Wayland:** runs as a background layer-shell surface (needs `gtk-layer-shell`, installed by the script when available).
 - **GNOME on Wayland:** no layer-shell support, so it runs through XWayland and may appear as a normal window. Use "GNOME on Xorg" for a true wallpaper.
-- A tray icon is shown if an AppIndicator library is present; otherwise use the command above.
+- A tray icon (with the same **Fish in tank ▸** submenu) is shown if an AppIndicator library is present; otherwise use the command above.
 
 ## Use in a browser or another wallpaper engine
 

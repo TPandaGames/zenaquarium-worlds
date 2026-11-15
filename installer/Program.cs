@@ -354,6 +354,13 @@ namespace ZenAquariumWorlds
         [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hhk);
         [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string name);
+        [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] public static extern int GetMessage(out MSG m, IntPtr hWnd, uint min, uint max);
+        [DllImport("user32.dll")] public static extern bool TranslateMessage(ref MSG m);
+        [DllImport("user32.dll")] public static extern IntPtr DispatchMessage(ref MSG m);
+        [DllImport("user32.dll")] public static extern bool PostThreadMessage(uint threadId, uint msg, IntPtr w, IntPtr l);
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public POINT pt; }
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SystemParametersInfo(uint action, uint param, string value, uint flags);
 
         [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
@@ -425,7 +432,9 @@ namespace ZenAquariumWorlds
         bool _overDesktop;
 
         readonly Dictionary<string, ToolStripMenuItem> _sceneItems = new Dictionary<string, ToolStripMenuItem>();
-        ToolStripMenuItem _miCycle, _miMouse, _miPause, _miAuto;
+        ToolStripMenuItem _miCycle, _miMouse, _miPause, _miAuto, _miFish;
+        readonly List<string[]> _species = new List<string[]>(); // {id, name, count} reported by the page
+        string _fishTotal = "0";
 
         protected override CreateParams CreateParams
         {
@@ -483,7 +492,11 @@ namespace ZenAquariumWorlds
                 st.IsZoomControlEnabled = false;
                 st.AreBrowserAcceleratorKeysEnabled = false;
                 st.IsBuiltInErrorPageEnabled = false;
-                _web.CoreWebView2.NavigationCompleted += (s, e) => { _pageReady = true; PushState(); };
+                _web.CoreWebView2.NavigationCompleted += (s, e) => { _pageReady = true; PushState(); Js("zen.state();"); };
+                _web.CoreWebView2.WebMessageReceived += (s, e) =>
+                {
+                    try { OnPageState(e.TryGetWebMessageAsString()); } catch { }
+                };
 
                 string html = Path.Combine(App.InstallDir, "wallpaper.html");
                 if (!File.Exists(html))
@@ -561,12 +574,53 @@ namespace ZenAquariumWorlds
         }
 
         // ---------------------------------------------------- mouse forwarding
+        static readonly bool Debug = Environment.GetEnvironmentVariable("ZQ_DEBUG") == "1";
+        static void Log(string m)
+        {
+            if (!Debug) return;
+            try { File.AppendAllText(Path.Combine(App.InstallDir, "host.log"), DateTime.Now.ToString("HH:mm:ss.fff ") + m + "\r\n"); } catch { }
+        }
+        int _logged;
+
+        // The hook lives on its own thread with its own message loop. Windows silently removes a low-level
+        // hook whose thread doesn't answer quickly, so it must never share a thread with the (busy) UI.
+        System.Threading.Thread _hookThread;
+        uint _hookThreadId;
+
         void InstallMouseHook()
         {
-            if (_hook != IntPtr.Zero) return;
+            if (_hookThread != null) return;
+            _hookThread = new System.Threading.Thread(HookThreadMain) { IsBackground = true, Name = "ZenMouseHook" };
+            _hookThread.Start();
+        }
+
+        void HookThreadMain()
+        {
             _hookProc = MouseProc;
             _hook = NativeMethods.SetWindowsHookEx(14, _hookProc, NativeMethods.GetModuleHandle(null), 0);
+            _hookThreadId = NativeMethods.GetCurrentThreadId();
+            Log("hook installed: handle=" + _hook + " lastError=" + Marshal.GetLastWin32Error() + " mouse=" + _mouse + " pageReady=" + _pageReady);
+            NativeMethods.MSG m;
+            while (NativeMethods.GetMessage(out m, IntPtr.Zero, 0, 0) > 0)
+            {
+                NativeMethods.TranslateMessage(ref m);
+                NativeMethods.DispatchMessage(ref m);
+            }
+            if (_hook != IntPtr.Zero) { NativeMethods.UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
         }
+
+        void StopMouseHook()
+        {
+            try
+            {
+                if (_hookThreadId != 0) NativeMethods.PostThreadMessage(_hookThreadId, 0x0012 /* WM_QUIT */, IntPtr.Zero, IntPtr.Zero);
+                if (_hookThread != null) _hookThread.Join(500);
+            }
+            catch { }
+            _hookThread = null; _hookThreadId = 0;
+        }
+
+        int _ticks;
 
         IntPtr MouseProc(int nCode, IntPtr wParam, IntPtr lParam)
         {
@@ -583,27 +637,31 @@ namespace ZenAquariumWorlds
                             if (!click) _lastMove = DateTime.UtcNow;
                             var ms = (NativeMethods.MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(NativeMethods.MSLLHOOKSTRUCT));
                             bool over = IsDesktopAt(ms.pt) && !_userPaused && !_autoPaused;
+                            if (Debug && _logged < 12) { _logged++; Log("mouse pt=" + ms.pt.X + "," + ms.pt.Y + " desktop=" + IsDesktopAt(ms.pt) + " userPaused=" + _userPaused + " autoPaused=" + _autoPaused + " bounds=" + _bounds); }
                             if (over)
                             {
                                 double fx = (ms.pt.X - _bounds.X) / (double)_bounds.Width;
                                 double fy = (ms.pt.Y - _bounds.Y) / (double)_bounds.Height;
                                 if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1)
                                 {
-                                    Js("zen.mouse(" + fx.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "," +
-                                       fy.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "," + (click ? "true" : "false") + ");");
+                                    string script = "zen.mouse(" + fx.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "," +
+                                       fy.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "," + (click ? "true" : "false") + ");";
+                                    // Never call into WebView2 from inside the hook: Windows silently removes a
+                                    // low-level hook whose callback is slow, so just queue the work.
+                                    BeginInvoke(new Action(() => Js(script)));
                                     _overDesktop = true;
                                 }
                             }
                             else if (_overDesktop)
                             {
                                 _overDesktop = false;
-                                Js("zen.mouse(-1,-1,false);");
+                                BeginInvoke(new Action(() => Js("zen.mouse(-1,-1,false);")));
                             }
                         }
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { Log("hook exception: " + ex.Message); }
             return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
         }
 
@@ -619,6 +677,9 @@ namespace ZenAquariumWorlds
         // ---------------------------------------------------- periodic upkeep
         void Tick()
         {
+            // Safety net: refresh the mouse hook every ~20 s in case Windows ever drops it silently
+            if (_pageReady && ++_ticks % 10 == 0) { StopMouseHook(); InstallMouseHook(); }
+
             // Re-attach if Explorer restarted
             if (_parent == IntPtr.Zero || !NativeMethods.IsWindow(_parent) || NativeMethods.GetParent(Handle) != _parent)
                 AttachToDesktop();
@@ -659,19 +720,17 @@ namespace ZenAquariumWorlds
             AddScene(menu, "koi", "🎏  Koi Pond");
             menu.Items.Add(new ToolStripSeparator());
 
-            var miMore = new ToolStripMenuItem("➕  Add fish");
-            miMore.Click += (s, e) => Js("zen.fish(2);");
-            menu.Items.Add(miMore);
-            var miLess = new ToolStripMenuItem("➖  Remove fish");
-            miLess.Click += (s, e) => Js("zen.fish(-2);");
-            menu.Items.Add(miLess);
+            _miFish = new ToolStripMenuItem("🐟  Fish in tank");
+            _miFish.DropDownItems.Add(new ToolStripMenuItem("Loading...") { Enabled = false });
+            _miFish.DropDownOpening += (s, e) => RebuildFishMenu();
+            menu.Items.Add(_miFish);
             menu.Items.Add(new ToolStripSeparator());
 
             _miCycle = new ToolStripMenuItem("Auto-rotate worlds (3 min)") { Checked = _cycle, CheckOnClick = true };
             _miCycle.Click += (s, e) => { _cycle = _miCycle.Checked; App.SetBool("Cycle", _cycle); Js("zen.cycle(" + (_cycle ? "true" : "false") + ");"); };
             menu.Items.Add(_miCycle);
 
-            _miMouse = new ToolStripMenuItem("Mouse interaction (feed & scare fish)") { Checked = _mouse, CheckOnClick = true };
+            _miMouse = new ToolStripMenuItem("Mouse interaction (feed && scare fish)") { Checked = _mouse, CheckOnClick = true };
             _miMouse.Click += (s, e) => { _mouse = _miMouse.Checked; App.SetBool("Mouse", _mouse); if (!_mouse) Js("zen.mouse(-1,-1,false);"); };
             menu.Items.Add(_miMouse);
 
@@ -700,6 +759,54 @@ namespace ZenAquariumWorlds
             UpdateSceneChecks();
         }
 
+        // The page reports "scene|total|id:name:count;id:name:count" whenever the tank changes
+        void OnPageState(string msg)
+        {
+            if (string.IsNullOrEmpty(msg)) return;
+            var parts = msg.Split('|');
+            if (parts.Length < 3) return;
+            if (parts[0] != _scene) { _scene = parts[0]; UpdateSceneChecks(); }
+            _fishTotal = parts[1];
+            _species.Clear();
+            foreach (var row in parts[2].Split(';'))
+            {
+                var f = row.Split(':');
+                if (f.Length == 3) _species.Add(f);
+            }
+            if (_miFish != null && _miFish.DropDown.Visible) RebuildFishMenu();
+        }
+
+        void RebuildFishMenu()
+        {
+            _miFish.DropDownItems.Clear();
+            var head = new ToolStripMenuItem(_fishTotal + " creatures in this world") { Enabled = false };
+            _miFish.DropDownItems.Add(head);
+            var more = new ToolStripMenuItem("➕  Add fish (mixed)");
+            more.Click += (s, e) => Js("zen.fish(2);");
+            var less = new ToolStripMenuItem("➖  Remove fish (mixed)");
+            less.Click += (s, e) => Js("zen.fish(-2);");
+            _miFish.DropDownItems.Add(more);
+            _miFish.DropDownItems.Add(less);
+            _miFish.DropDownItems.Add(new ToolStripSeparator());
+            if (_species.Count == 0)
+            {
+                _miFish.DropDownItems.Add(new ToolStripMenuItem("Waiting for the tank...") { Enabled = false });
+                return;
+            }
+            foreach (var sp in _species)
+            {
+                string id = sp[0];
+                var row = new ToolStripMenuItem(sp[1] + "   (" + sp[2] + ")");
+                var add = new ToolStripMenuItem("➕  Add one");
+                add.Click += (s, e) => Js("zen.species('" + id + "',1);");
+                var remove = new ToolStripMenuItem("➖  Remove one");
+                remove.Click += (s, e) => Js("zen.species('" + id + "',-1);");
+                row.DropDownItems.Add(add);
+                row.DropDownItems.Add(remove);
+                _miFish.DropDownItems.Add(row);
+            }
+        }
+
         void AddScene(ContextMenuStrip menu, string id, string label)
         {
             var item = new ToolStripMenuItem(label);
@@ -724,7 +831,7 @@ namespace ZenAquariumWorlds
             if (_cleaned) return;
             _cleaned = true;
             try { _timer.Stop(); } catch { }
-            try { if (_hook != IntPtr.Zero) NativeMethods.UnhookWindowsHookEx(_hook); } catch { }
+            StopMouseHook();
             try { _tray.Visible = false; _tray.Dispose(); } catch { }
             try { Hide(); NativeMethods.SetParent(Handle, IntPtr.Zero); } catch { }
             NativeMethods.RefreshDesktopWallpaper();
