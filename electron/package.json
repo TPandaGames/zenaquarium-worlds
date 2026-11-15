@@ -1,7 +1,7 @@
 {
   "name": "zenaquarium-worlds",
   "productName": "ZenAquarium Worlds",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Interactive live wallpaper with three procedural worlds: Coral Reef, Deep Sea and Koi Pond",
   "main": "main.js",
   "homepage": "https://github.com/TPandaGames/zenaquarium-worlds",
