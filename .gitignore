@@ -1,0 +1,13 @@
+# Build output
+installer/bin/
+installer/obj/
+dist/
+
+# Not part of this project
+docs/
+examples/virtual_fishtank_live_wallpaper.html
+
+# Editor / OS
+.vs/
+.vscode/
+Thumbs.db

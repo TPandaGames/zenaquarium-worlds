@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- .NET Framework 4.8 ships with Windows 11, so the .exe needs no extra runtime -->
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>ZenAquariumWorlds-Setup</AssemblyName>
+    <RootNamespace>ZenAquariumWorlds</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <Product>ZenAquarium Worlds</Product>
+    <Nullable>disable</Nullable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+  </ItemGroup>
+
+  <!-- The wallpaper page is embedded so the setup .exe is fully standalone -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\examples\zenaquarium_worlds_live_wallpaper.html" LogicalName="payload.wallpaper.html" />
+  </ItemGroup>
+
+  <!-- WebView2 libraries are embedded too and unpacked by the installer next to the installed .exe -->
+  <ItemGroup>
+    <EmbeddedResource Include="$(NuGetPackageRoot)microsoft.web.webview2\1.0.2792.45\lib\net462\Microsoft.Web.WebView2.Core.dll" LogicalName="payload.Microsoft.Web.WebView2.Core.dll" Condition="'$(NuGetPackageRoot)' != ''" />
+    <EmbeddedResource Include="$(NuGetPackageRoot)microsoft.web.webview2\1.0.2792.45\lib\net462\Microsoft.Web.WebView2.WinForms.dll" LogicalName="payload.Microsoft.Web.WebView2.WinForms.dll" Condition="'$(NuGetPackageRoot)' != ''" />
+    <EmbeddedResource Include="$(NuGetPackageRoot)microsoft.web.webview2\1.0.2792.45\runtimes\win-x64\native\WebView2Loader.dll" LogicalName="payload.WebView2Loader.dll" Condition="'$(NuGetPackageRoot)' != ''" />
+  </ItemGroup>
+
+</Project>
