@@ -12,6 +12,12 @@ A living, interactive **live wallpaper for Windows 11** with three animated worl
 2. Run it and click **Install & Launch**. (SmartScreen may warn about an unknown publisher because the exe is unsigned — choose *More info → Run anyway*.)
 3. Use the fish icon in the system tray to switch worlds, pause, or exit.
 
+Or from PowerShell, download and launch the installer in one line:
+
+```powershell
+irm https://github.com/TPandaGames/zenaquarium-worlds/releases/latest/download/ZenAquariumWorlds-Setup.exe -OutFile "$env:TEMP\ZenAquariumWorlds-Setup.exe"; & "$env:TEMP\ZenAquariumWorlds-Setup.exe"
+```
+
 Installs for the current user only (no administrator rights). Uninstall from **Settings → Apps → ZenAquarium Worlds**.
 
 **Requirements:** Windows 11 x64 with the Microsoft Edge WebView2 Runtime (included with Windows 11). Tested on Windows 11 24H2; the code also has a path for the older desktop layout but it is untested.
@@ -29,7 +35,17 @@ Installs for the current user only (no administrator rights). Uninstall from **S
 
 > **Status: experimental.** Install, run, command-line control and uninstall were tested on Debian 13 (trixie) under WSLg, where it runs as a plain full-screen window. The true desktop-layer behaviour on X11 and layer-shell compositors, and the tray icon, have not been tested on a real Linux desktop.
 
+**One-line installer** — paste into a terminal:
+
+```bash
+curl -fsSL https://github.com/TPandaGames/zenaquarium-worlds/releases/latest/download/zenaquarium-worlds-linux.tar.gz | tar xz && cd zenaquarium-worlds-linux && ./install.sh
 ```
+
+Add `--autostart` to the end to also start it at login. To uninstall: `./install.sh --uninstall` from that folder.
+
+Prefer to read the script first? Download the tarball from the [latest release](../../releases/latest), or run it from a clone:
+
+```bash
 cd linux
 ./install.sh --autostart      # --autostart is optional
 ```
